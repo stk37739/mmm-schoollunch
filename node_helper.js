@@ -7,7 +7,13 @@ const { parseMenu, resolveWeekStart, ymd } = require("./parser");
 
 module.exports = NodeHelper.create({
   socketNotificationReceived(notification, config) {
-    if (notification === "SCHOOL_LUNCH_FETCH") this.fetchMenu(config);
+    if (notification === "SCHOOL_LUNCH_FETCH") {
+      this.fetchMenu(config).catch((err) => {
+        console.error("[MMM-SchoolLunch] Unhandled fetch error:", err);
+        this.sendSocketNotification("SCHOOL_LUNCH_ERROR", "Internal error checking email");
+        this.busy = false;
+      });
+    }
   },
 
   async fetchMenu(config) {
@@ -15,17 +21,30 @@ module.exports = NodeHelper.create({
     this.busy = true;
 
     const imap = config.imap || {};
+    const user = imap.user || process.env.SCHOOL_LUNCH_IMAP_USER;
+    const pass = imap.password || process.env.SCHOOL_LUNCH_IMAP_PASSWORD;
+
+    if (!user || !pass) {
+      this.sendSocketNotification(
+        "SCHOOL_LUNCH_ERROR",
+        "IMAP credentials missing. Set user/password in config.js or environment variables."
+      );
+      this.busy = false;
+      return;
+    }
+
     const client = new ImapFlow({
-      host: imap.host,
-      port: imap.port || 993,
+      host: imap.host || "imap.gmail.com",
+      port: Number(imap.port) || 993,
       secure: imap.secure !== false,
-      auth: {
-        user: imap.user || process.env.SCHOOL_LUNCH_IMAP_USER,
-        pass: imap.password || process.env.SCHOOL_LUNCH_IMAP_PASSWORD
-      },
-      logger: false
+      auth: { user, pass },
+      logger: false,
+      clientInfo: { name: "MagicMirror-SchoolLunch" }
     });
-    client.on("error", (err) => console.error("[MMM-SchoolLunch] IMAP:", err.message));
+
+    client.on("error", (err) => {
+      console.error("[MMM-SchoolLunch] IMAP Client Error:", err ? err.message : err);
+    });
 
     try {
       await client.connect();
@@ -33,24 +52,28 @@ module.exports = NodeHelper.create({
       let result = null;
 
       try {
-        const query = { since: new Date(Date.now() - config.searchDays * 86400000) };
+        const query = { since: new Date(Date.now() - (config.searchDays || 21) * 86400000) };
         if (config.from) query.from = config.from;
         if (config.subject) query.subject = config.subject;
 
-        const uids = ((await client.search(query, { uid: true })) || []).sort((a, b) => b - a);
-        if (config.debug) console.log(`[MMM-SchoolLunch] ${uids.length} matching email(s)`);
+        const searchResults = await client.search(query, { uid: true });
+        const uids = (searchResults || []).sort((a, b) => b - a);
 
-        // Newest first; skip anything that doesn't look like a menu
+        if (config.debug) {
+          console.log(`[MMM-SchoolLunch] Found ${uids.length} matching email(s)`);
+        }
+
         for (const uid of uids.slice(0, 5)) {
           const msg = await client.fetchOne(String(uid), { source: true, internalDate: true }, { uid: true });
+          if (!msg || !msg.source) continue;
+
           const mail = await simpleParser(msg.source);
-          const parsed = parseMenu(mail.text || "", config);
+          const parsed = parseMenu(mail.text || mail.html || "", config);
 
           if (config.debug) {
             console.log(`[MMM-SchoolLunch] "${mail.subject}" -> found ${parsed.found} day(s)`);
-            console.log("----- email text as the module sees it -----\n" + (mail.text || "").slice(0, 20000));
-            console.log("----- parsed -----\n" + JSON.stringify(parsed, null, 2));
           }
+
           if (parsed.found < 2) continue;
 
           const received = mail.date || msg.internalDate || new Date();
@@ -71,14 +94,19 @@ module.exports = NodeHelper.create({
       } else {
         this.sendSocketNotification(
           "SCHOOL_LUNCH_ERROR",
-          `No lunch menu found in the last ${config.searchDays} days. Check the from/subject settings.`
+          `No lunch menu found in the last ${config.searchDays || 21} days.`
         );
       }
     } catch (err) {
-      console.error("[MMM-SchoolLunch]", err);
-      this.sendSocketNotification("SCHOOL_LUNCH_ERROR", `Couldn't read email: ${err.responseText || err.message}`);
+      console.error("[MMM-SchoolLunch] Error running fetchMenu:", err);
+      const msg = err && (err.responseText || err.message) ? (err.responseText || err.message) : "Failed to connect to email";
+      this.sendSocketNotification("SCHOOL_LUNCH_ERROR", `IMAP Error: ${msg}`);
     } finally {
-      if (client.usable) await client.logout().catch(() => {});
+      try {
+        if (client.usable) await client.logout();
+      } catch (e) {
+        // ignore logout errors
+      }
       this.busy = false;
     }
   }
