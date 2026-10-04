@@ -1,0 +1,14 @@
+{
+  "name": "mmm-schoollunch",
+  "version": "1.0.0",
+  "description": "MagicMirror² module that shows the weekly school lunch menu from an email",
+  "main": "MMM-SchoolLunch.js",
+  "scripts": {
+    "test": "node parser.js sample-bees-buzz.txt --startAfter \"menu for the week of\" --endBefore \"Grab and Go|REMINDER\" --splitOr --received 2026-10-02"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "imapflow": "^1.0.0",
+    "mailparser": "^3.6.0"
+  }
+}

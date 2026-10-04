@@ -1,0 +1,43 @@
+.schoollunch .sl-days {
+  text-align: left;
+}
+
+.schoollunch .sl-days.horizontal {
+  display: flex;
+  gap: 24px;
+}
+
+.schoollunch .sl-days.horizontal .sl-day {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+
+.schoollunch .sl-day {
+  margin-bottom: 10px;
+}
+
+.schoollunch .sl-name {
+  font-weight: 600;
+  color: var(--color-text, #999);
+}
+
+.schoollunch .sl-items {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  line-height: 1.25;
+  color: var(--color-text, #999);
+}
+
+.schoollunch .sl-day.today .sl-name,
+.schoollunch .sl-day.today .sl-items {
+  color: var(--color-text-bright, #fff);
+}
+
+.schoollunch .sl-day.past {
+  opacity: 0.45;
+}
+
+.schoollunch .sl-note {
+  margin-top: 4px;
+}
