@@ -3,30 +3,22 @@
 Module.register("MMM-SchoolLunch", {
   defaults: {
     title: "School Lunch",
-
-    // Mailbox to read. Gmail needs an app password (see README).
-    // You can also set SCHOOL_LUNCH_IMAP_USER / SCHOOL_LUNCH_IMAP_PASSWORD
-    // as environment variables instead of putting them here.
     imap: { host: "imap.gmail.com", port: 993, secure: true, user: "", password: "" },
     mailbox: "INBOX",
-    from: "", // part of the sender address, e.g. "lunch@school.org"
-    subject: "", // word(s) in the subject, e.g. "lunch menu"
-    searchDays: 21, // how far back to look for the menu email
-    weekOffset: 0, // set to 1 if the email arrives mid-week for NEXT week
-
-    // Parsing (see README). Newsletters need startAfter/endBefore.
-    startAfter: "", // regex; only read the email from the first matching line on
-    endBefore: "", // regex; stop reading at the first matching line
-    stopPatterns: [], // regex strings; a matching line ends the current day
-    ignorePatterns: [], // regex strings; matching lines are dropped
+    from: "",
+    subject: "",
+    searchDays: 21,
+    weekOffset: 0,
+    startAfter: "",
+    endBefore: "",
+    stopPatterns: [],
+    ignorePatterns: [],
     blankLineEndsDay: false,
-    splitInline: true, // "Monday: A, B, C" becomes three items
-    splitOr: false, // "Pizza or Quesadilla" becomes "Pizza" / "or Quesadilla"
-    debug: false, // log the email text and parse result to the MagicMirror console
-
-    // Display
-    layout: "vertical", // "vertical" (sidebar) or "horizontal" (top/bottom bar)
-    dayFormat: "short", // "short" = Mon, "long" = Monday
+    splitInline: true,
+    splitOr: false,
+    debug: false,
+    layout: "vertical",
+    dayFormat: "short",
     highlightToday: true,
     hidePastDays: false,
     updateInterval: 60 * 60 * 1000,
@@ -45,7 +37,6 @@ Module.register("MMM-SchoolLunch", {
     this.refresh();
     setInterval(() => this.refresh(), this.config.updateInterval);
 
-    // Move the "today" highlight after midnight
     setInterval(() => {
       const now = new Date().toDateString();
       if (now !== this.today) {
@@ -79,21 +70,34 @@ Module.register("MMM-SchoolLunch", {
     const wrapper = document.createElement("div");
     wrapper.className = "schoollunch";
 
-    if (!this.menu) {
+    if (this.error && !this.menu) {
       wrapper.className += " dimmed light small";
-      wrapper.textContent = this.error || "Loading lunch menu…";
+      wrapper.textContent = typeof this.error === "string" ? this.error : "Error loading menu";
+      return wrapper;
+    }
+
+    if (!this.menu || !this.menu.weekStart) {
+      wrapper.className += " dimmed light small";
+      wrapper.textContent = "Loading lunch menu…";
       return wrapper;
     }
 
     const loc = config.locale || config.language || "en";
-    const [y, m, d] = this.menu.weekStart.split("-").map(Number);
+    const parts = (this.menu.weekStart || "").split("-").map(Number);
+    if (parts.length < 3 || parts.some(isNaN)) {
+      wrapper.className += " dimmed light small";
+      wrapper.textContent = "Invalid menu date format";
+      return wrapper;
+    }
+
+    const [y, m, d] = parts;
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
     const days = document.createElement("div");
     days.className = `sl-days ${this.config.layout}`;
 
-    this.menu.days.forEach((items, i) => {
+    (this.menu.days || []).forEach((items, i) => {
       const date = new Date(y, m - 1, d + i);
       const isToday = date.getTime() === startOfToday.getTime();
       const isPast = date < startOfToday;
@@ -113,7 +117,7 @@ Module.register("MMM-SchoolLunch", {
       name.appendChild(dateEl);
       day.appendChild(name);
 
-      if (items.length) {
+      if (Array.isArray(items) && items.length) {
         const list = document.createElement("ul");
         list.className = "sl-items small";
         items.forEach((text) => {
@@ -132,12 +136,11 @@ Module.register("MMM-SchoolLunch", {
     });
     wrapper.appendChild(days);
 
-    // Footer: which week this is, plus any problems refreshing
     const weekEnd = new Date(y, m - 1, d + 7);
     const note = document.createElement("div");
     note.className = "sl-note xsmall dimmed light";
     note.textContent = `Week of ${new Date(y, m - 1, d).toLocaleDateString(loc, { month: "short", day: "numeric" })}`;
-    if (startOfToday >= weekEnd) note.textContent += " · waiting for the new menu";
+    if (startOfToday >= weekEnd) note.textContent += " · waiting for new menu";
     if (this.error) note.textContent += " · couldn't refresh";
     wrapper.appendChild(note);
 
